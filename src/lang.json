@@ -1,0 +1,57 @@
+{
+    "MSG_ERROR": {
+        "en": "",
+        "fa": "",
+        "ar": ""
+    },
+    "MSG_SELECT_APP": {
+        "en": "",
+        "fa": "",
+        "ar": ""
+    },
+    "MSG_SELECT_OS": {
+        "en": "",
+        "fa": "",
+        "ar": ""
+    },
+    "MSG_SELECT_APPOS": {
+        "en": "",
+        "fa": "",
+        "ar": ""
+    },
+    "MSG_ERROR_APP": {
+        "en": "",
+        "fa": "",
+        "ar": ""
+    },
+    "MSG_FILE_DOWNLOAD": {
+        "en": "",
+        "fa": "",
+        "ar": ""
+    },
+    "MSG_CHITCHAT": {
+        "en": "",
+        "fa": "",
+        "ar": ""
+    },
+    "MSG_WAIT": {
+        "en": "",
+        "fa": "",
+        "ar": ""
+    },
+    "MSG_START_COMMAND": {
+        "en": "",
+        "fa": "",
+        "ar": ""
+    },
+    "FILE_LIMIT_EXCEEDED": {
+        "en": "",
+        "fa": "",
+        "ar": ""
+    },
+    "MSG_WINDOWS_TEXT_FILE": {
+        "en": "",
+        "fa": "",
+        "ar": ""
+    }
+}

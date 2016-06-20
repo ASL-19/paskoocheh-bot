@@ -1,0 +1,11 @@
+# https://git-scm.com/docs/gitignore
+# https://help.github.com/articles/ignoring-files
+# Example .gitignore files: https://github.com/github/gitignore
+deploy/
+src/pyskoocheh*
+src/requests*
+src/easy_install*
+src/google*
+src/protobuf*
+src/setuptools*
+src/pkg_resources*

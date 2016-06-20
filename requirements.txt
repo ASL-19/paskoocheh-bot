@@ -1,0 +1,3 @@
+requests
+protobuf
+https://github.com/ASL-19/pyskoocheh.git
