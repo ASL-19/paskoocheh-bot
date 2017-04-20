@@ -4,6 +4,7 @@ import logging
 import json
 import sys
 import time
+import re
 
 from os import sys, path
 from pyskoocheh import storage, actionlog, telegram
@@ -20,7 +21,7 @@ def make_app_os_text(app_name, os_name):
         app: app name
         os: OS the app is written for
     """
-    name = paskoocheh.PlatformName.Name(os_name).title()
+    name = re.sub(r"[^a-z0-9]+", "", paskoocheh.PlatformName.Name(os_name).lower()).title()
     return app_name + " (" + name + ")"
 
 def parse_conf_data(conf):
@@ -39,7 +40,7 @@ def parse_conf_data(conf):
         return None, None, None
 
     for platform in conf.platforms:
-        name = paskoocheh.PlatformName.Name(platform.name).title()
+        name = re.sub(r"[^a-z0-9]+", "", paskoocheh.PlatformName.Name(platform.name).lower()).title()
         if not platform.tools:
             continue
         if name not in oslist:
@@ -55,13 +56,72 @@ def parse_conf_data(conf):
                 "os": name,
                 "key": tool.releases[0].binary.path,
                 "filename": path.basename(tool.releases[0].binary.path),
-                "release_url": tool.releases[0].release_url
+                "release_url": tool.releases[0].release_url,
+                "action_name": re.sub(r"[^a-z0-9]+", '', tool.contact.name.lower()) + "-" + name.lower()
             }
             applistos[name].append(tool.contact.name)
             applistname[tool.contact.name].append(name)
-    LOGGER.info(apposlist)
 
     return applistname, applistos, apposlist
+
+def send_file_or_link(token, chat_id, key, url, lang, language, action_name, extra_msg = ""):
+    """ Send the file pointed to by key to the user if
+        it's smaller than less allowed size, or the link
+        otherwise.
+
+        Args:
+        token: Telegram Bot token
+        chat_id: Telegram Chat ID
+        key: The file on S3
+        url: release url, used if there is no key
+        lang: Language dictionary
+        language: Language to use
+        action_name: Name of the file to store in db
+        extra_msg: If provided it sends the message to the user
+    """
+    LOGGER.info("Sending file {}".format(key))
+
+    if not key or key == "":
+        meta = {
+            "content_length": CONFIG["MAX_ALLOWED_FILE_SIZE"]
+        }
+        telegram.send_message(token, chat_id,
+                              lang["MSG_FILE_DOWNLOAD"][language] +
+                              "\n" + url, [[url]])
+    else:
+        link = storage.build_static_link(CONFIG["S3_BUCKET_NAME"], key)
+        meta = storage.get_object_metadata(CONFIG["S3_BUCKET_NAME"], key)
+
+        LOGGER.info("Cheking file size")
+        if meta.content_length < CONFIG["MAX_ALLOWED_FILE_SIZE"]:
+            LOGGER.info("Uploading File")
+            telegram.send_message(token, chat_id,
+                                  lang["MSG_WAIT"][language])
+
+            if extra_msg != "":
+                telegram.send_message(token, chat_id, extra_msg)
+
+            telegram.send_file(token, chat_id,
+                               lang["MSG_FILE_DOWNLOAD"][language] +
+                               "\n" + link, CONFIG["S3_BUCKET_NAME"], key)
+        else:
+            LOGGER.info("File too large, sending link")
+            with open(CONFIG["S3_CREDENTIAL_FILE"]) as conf_sec:
+                conf_access = json.load(conf_sec)
+
+            api_key_id = conf_access["LIMITED_ACCESS"]["API_KEY_ID"]
+            secret_key = conf_access["LIMITED_ACCESS"]["SECRET_KEY"]
+            temp_link = storage.get_temp_link(CONFIG["S3_BUCKET_NAME"], key,
+                                              api_key_id, secret_key)
+            telegram.send_message(token, chat_id,
+                                  lang["MSG_FILE_DOWNLOAD"][language] +
+                                  "\n" + temp_link, [[temp_link]])
+            telegram.send_message(token, chat_id,
+                                  lang["TEMP_LINK_TEXT"][language])
+
+    LOGGER.info("{} is added to the db".format(action_name))
+    actionlog.log_action(str(chat_id), action_name,
+                         CONFIG["APPLICATION_SOURCE"])
 
 def bot_handler(event, _):
     """ Main entry point to handle the bot
@@ -76,6 +136,7 @@ def bot_handler(event, _):
     command = ""
     try:
         msg = event["Input"]["message"]["text"]
+        actionlog.log_action(str(chat_id), msg, CONFIG["APPLICATION_SOURCE"], table='')
     except KeyError as error:
         LOGGER.error("There is no message text, exiting...")
         return None
@@ -124,42 +185,48 @@ def bot_handler(event, _):
     if msg[0] == "/":
         command = msg[1:].lower()
 
-    if msg == CONFIG["HOME_TEXT"]:
+    if msg == lang["HOME_TEXT"][language]:
         command = CONFIG["TELEGRAM_START_COMMAND"]
 
     LOGGER.info("Message: %s MessageId: %s ChatId: %s Command: %s",
                 msg, str(msg_id), str(chat_id), command)
 
+    link = ""
     if command == CONFIG["TELEGRAM_START_COMMAND"]:
-        keyboard = [[CONFIG["MENU_OS_TEXT"], CONFIG["MENU_APP_TEXT"]]]
+        keyboard = [[lang["MENU_OS_TEXT"][language], lang["MENU_APP_TEXT"][language]], [lang["MENU_PASK_APK"][language]]]
         telegram.send_keyboard(token, chat_id, lang["MSG_START_COMMAND"][language], keyboard)
     elif command == "":
         # This is a message not started with /
-        if msg == CONFIG["MENU_APP_TEXT"]:
+        if msg == lang["MENU_APP_TEXT"][language]:
             LOGGER.info("App selected")
             items = []
             for app in applistname:
                 items.append(app)
 
-            keyboard = telegram.make_keyboard(items, CONFIG["ITEMS_PER_ROW"])
+            keyboard = telegram.make_keyboard(items, CONFIG["ITEMS_PER_ROW"], lang["HOME_TEXT"][language])
             telegram.send_keyboard(token, chat_id, lang["MSG_SELECT_APP"][language], keyboard)
             return None
-        elif msg == CONFIG["MENU_OS_TEXT"]:
+        elif msg == lang["MENU_OS_TEXT"][language]:
             LOGGER.info("OS selected")
             items = []
             for os_name in applistos:
                 items.append(os_name)
 
-            keyboard = telegram.make_keyboard(items, CONFIG["ITEMS_PER_ROW"])
+            keyboard = telegram.make_keyboard(items, CONFIG["ITEMS_PER_ROW"], lang["HOME_TEXT"][language])
             LOGGER.info("os keyboard: %s", keyboard)
             telegram.send_keyboard(token, chat_id, lang["MSG_SELECT_OS"][language], keyboard)
             return None
+        elif msg == lang["MENU_PASK_APK"][language]:
+            LOGGER.info("Pask APK Download")
+            key = CONFIG["PASK_APK_KEY"]
+            send_file_or_link(token, chat_id, key, link, lang, language, key)
+
         else:
             for app_name, oses in applistname.iteritems():
                 if msg == app_name:
                     LOGGER.info("User asked for app name %s returning os list: %s", app_name, oses)
                     texts = ["{} ({})".format(app_name, os_name) for os_name in oses]
-                    keyboard = telegram.make_keyboard(texts, CONFIG["ITEMS_PER_ROW"])
+                    keyboard = telegram.make_keyboard(texts, CONFIG["ITEMS_PER_ROW"], lang["HOME_TEXT"][language])
                     telegram.send_keyboard(token, chat_id, lang["MSG_SELECT_APPOS"][language],
                                            keyboard)
                     return None
@@ -168,74 +235,38 @@ def bot_handler(event, _):
                 if msg == os_name:
                     LOGGER.info("User asked for os name %s returning app list: %s", os_name, apps)
                     texts = ["{} ({})".format(app_name, os_name) for app_name in apps]
-                    keyboard = telegram.make_keyboard(texts, CONFIG["ITEMS_PER_ROW"])
+                    keyboard = telegram.make_keyboard(texts, CONFIG["ITEMS_PER_ROW"], lang["HOME_TEXT"][language])
                     telegram.send_keyboard(token, chat_id, lang["MSG_SELECT_APPOS"][language],
                                            keyboard)
                     return None
 
             for appos, values in apposlist.iteritems():
                 if msg == appos:
-                    action_name = values["filename"]
-                    if action_name == "":
-                        action_name = values["release_url"]
                     LOGGER.info("User requested %s, sending file: %s",
                                 msg, values["filename"])
-                    if actionlog.is_limit_exceeded(chat_id, action_name):
-                        telegram.send_message(token, chat_id,
-                                              lang["FILE_LIMIT_EXCEEDED"][language])
-                        keyboard = [[CONFIG["MENU_OS_TEXT"], CONFIG["MENU_APP_TEXT"]]]
-                        telegram.send_keyboard(token, chat_id,
-                                               lang["MSG_START_COMMAND"][language], keyboard)
-                        return None
-                    else:
-                        key = values["key"].strip("/")
-                        if not key or key == "":
-                            link = values["release_url"]
-                            meta = {
-                                "content_length": CONFIG["MAX_ALLOWED_FILE_SIZE"]
-                            }
-                            telegram.send_message(token, chat_id,
-                                                  lang["MSG_FILE_DOWNLOAD"][language] +
-                                                  "\n" + link, [[link]])
 
-                            keyboard = [[CONFIG["MENU_OS_TEXT"], CONFIG["MENU_APP_TEXT"]]]
+                    key = values["key"].strip("/")
+                    if not key or key == "":
+                        link = values["release_url"]
+                    else:
+                        if actionlog.is_limit_exceeded(chat_id, values["action_name"]):
+                            telegram.send_message(token, chat_id,
+                                                  lang["FILE_LIMIT_EXCEEDED"][language])
+                            keyboard = [[lang["MENU_OS_TEXT"][language], lang["MENU_APP_TEXT"][language]], [lang["MENU_PASK_APK"][language]]]
                             telegram.send_keyboard(token, chat_id,
                                                    lang["MSG_START_COMMAND"][language], keyboard)
                             return None
 
-                        """ S3 Serve or Link """
-                        link = storage.build_static_link(CONFIG["S3_BUCKET_NAME"], key)
-                        meta = storage.get_object_metadata(CONFIG["S3_BUCKET_NAME"], key)
+                    send_file_or_link(token, chat_id, key, link, lang, language, values["action_name"],
+                                      lang["MSG_WINDOWS_TEXT_FILE"][language] if values["os"].lower() == "windows" else "")
 
-                        if meta.content_length < CONFIG["MAX_ALLOWED_FILE_SIZE"]:
-                            telegram.send_message(token, chat_id,
-                                                  lang["MSG_WAIT"][language])
-
-                            if values["os"].lower() == "windows":
-                                telegram.send_message(token, chat_id,
-                                                  lang["MSG_WINDOWS_TEXT_FILE"][language])
-
-                            telegram.send_file(token, chat_id,
-                                               lang["MSG_FILE_DOWNLOAD"][language] +
-                                               "\n" + link, CONFIG["S3_BUCKET_NAME"], key)
-                        else:
-                            LOGGER.info("File too large, sending link")
-                            with open(CONFIG["S3_CREDENTIAL_FILE"]) as conf_sec:
-                                conf_access = json.load(conf_sec)
-
-                            api_key_id = conf_access["LIMITED_ACCESS"]["API_KEY_ID"]
-                            secret_key = conf_access["LIMITED_ACCESS"]["SECRET_KEY"]
-                            temp_link = storage.get_temp_link(CONFIG["S3_BUCKET_NAME"], key,
-                                                              api_key_id, secret_key)
-                            temp_link = temp_link.replace("https://paskoocheh.s3.amazonaws.com/", "https://s3.amazonaws.com/paskoocheh/")
-                            telegram.send_message(token, chat_id,
-                                                  lang["MSG_FILE_DOWNLOAD"][language] +
-                                                  "\n" + temp_link, [[temp_link]])
-                        actionlog.log_action(str(chat_id), action_name,
-                                             CONFIG["APPLICATION_SOURCE"])
-
-                    keyboard = [[CONFIG["MENU_OS_TEXT"], CONFIG["MENU_APP_TEXT"]]]
+                    keyboard = [[lang["MENU_OS_TEXT"][language], lang["MENU_APP_TEXT"][language]], [lang["MENU_PASK_APK"][language]]]
                     telegram.send_keyboard(token, chat_id,
                                            lang["MSG_START_COMMAND"][language], keyboard)
                     return None
+
             telegram.send_message(token, chat_id, lang["MSG_CHITCHAT"][language])
+
+        keyboard = [[lang["MENU_OS_TEXT"][language], lang["MENU_APP_TEXT"][language]], [lang["MENU_PASK_APK"][language]]]
+        telegram.send_keyboard(token, chat_id, lang["MSG_START_COMMAND"][language], keyboard)
+        return None

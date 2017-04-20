@@ -53,5 +53,30 @@
         "en": "",
         "fa": "",
         "ar": ""
+    },
+    "MENU_APP_TEXT": {
+        "fa": "",
+        "en": "",
+        "ar": ""
+    },
+    "MENU_PASK_APK": {
+        "fa": "",
+        "en": "",
+        "ar": ""
+    }, 
+    "TEMP_LINK_TEXT": {
+        "fa": "",
+        "en": "",
+        "ar": ""
+    },
+    "MENU_OS_TEXT": {
+        "fa": "",
+        "en": "",
+        "ar": ""
+    },
+    "HOME_TEXT": {
+        "fa": "",
+        "en": "",
+        "ar": ""
     }
 }
