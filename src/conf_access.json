@@ -2,5 +2,9 @@
     "LIMITED_ACCESS": {
         "API_KEY_ID": "",
         "SECRET_KEY": ""
+    },
+    "PROMO_ACCESS": {
+        "ACCESS_KEY": "",
+        "SECRET_KEY": ""
     }
 }

@@ -123,6 +123,78 @@ def send_file_or_link(token, chat_id, key, url, lang, language, action_name, ext
     actionlog.log_action(str(chat_id), action_name,
                          CONFIG["APPLICATION_SOURCE"])
 
+def get_promo_code(tool):
+    """ Look for promo codes and if there is any
+        returns it to the user.
+
+    Args:
+        tool: Tool name to look for promo
+    Returns:
+        A string containing promo code or empty if there is none and a guide link
+    """
+    key_name = re.sub('\s+', '', tool).lower().strip() + CONFIG['S3_PROMO_FILE_EXTENSION']
+    LOGGER.info("Checking S3 for Promo codes for {}".format(key_name))
+
+    with open(CONFIG["S3_CREDENTIAL_FILE"]) as conf_sec:
+        conf_access = json.load(conf_sec)
+
+    try:
+        pfile = storage.get_file_with_creds(
+            CONFIG['S3_PROMO_BUCKET_NAME'],
+            key_name,
+            conf_access['PROMO_ACCESS']['ACCESS_KEY'],
+            conf_access['PROMO_ACCESS']['SECRET_KEY'])
+    except Exception as e:
+        LOGGER.info('Unable to get promo file from S3: {}'.format(str(e)))
+        return '', ''
+
+    if not pfile or 'Body' not in pfile:
+        return '', ''
+
+    try:
+        codes = json.load(pfile['Body'])
+
+    except Exception as e:
+        LOGGER.error('Error in json file {} form {} due to {}: {}'.format(
+            key_name,
+            CONFIG['S3_PROMO_BUCKET_NAME'],
+            str(e),
+            pfile['Body']))
+        return '', ''
+
+    LOGGER.info("File found: {}".format(str(codes)))
+    if 'unused' not in codes or len(codes['unused']) == 0:
+        return '', ''
+
+    code = codes['unused'].pop(0)
+    if 'used' not in codes:
+        codes['used'] = []
+    codes['used'].append(code)
+
+    link = ''
+    if 'link' in codes:
+        link = codes['link']
+
+    LOGGER.info("Code found: {}".format(str(code)))
+    try:
+        storage.put_file_with_creds(
+            CONFIG['S3_PROMO_BUCKET_NAME'],
+            key_name,
+            json.dumps(codes),
+            conf_access['PROMO_ACCESS']['ACCESS_KEY'],
+            conf_access['PROMO_ACCESS']['SECRET_KEY'])
+
+    except Exception as e:
+        LOGGER.error('Error in writing file {} form {} due to {}: {}'.format(
+            key_name,
+            CONFIG['S3_PROMO_BUCKET_NAME'],
+            str(e),
+            json.dumps(codes)))
+        return '' , ''
+        
+    LOGGER.info('File is written back')
+    return code, link
+
 def bot_handler(event, _):
     """ Main entry point to handle the bot
         event: information about the chat
@@ -257,6 +329,13 @@ def bot_handler(event, _):
                                                    lang["MSG_START_COMMAND"][language], keyboard)
                             return None
 
+                    code, guide_link = get_promo_code(values['app'])
+                    if code: 
+                        telegram.send_message(token, chat_id,
+                                              lang["PROMO_CODE"][language].format(code))
+                    if guide_link:
+                        telegram.send_message(token, chat_id,
+                                              lang["PROMO_LINK"][language].format(guide_link))
                     send_file_or_link(token, chat_id, key, link, lang, language, values["action_name"],
                                       lang["MSG_WINDOWS_TEXT_FILE"][language] if values["os"].lower() == "windows" else "")
 
